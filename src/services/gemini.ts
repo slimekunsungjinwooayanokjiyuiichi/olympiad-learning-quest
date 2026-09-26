@@ -119,7 +119,8 @@ const callServerRouter = async (prompt: string, model: string): Promise<string> 
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const attempted = Array.isArray(data?.attempts) ? ` (${data.attempts.map((a: any) => a.provider).join(' → ')})` : '';
+    const attempted = Array.isArray(data?.attempts) && data.attempts.length
+      ? ` (tried ${data.attempts.map((a: any) => a.model).join(' → ')})` : '';
     throw new Error(`${data?.error || `Router error ${response.status}`}${attempted}`);
   }
   if (!data?.text) throw new Error('AI router returned no text');
