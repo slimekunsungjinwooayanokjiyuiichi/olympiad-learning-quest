@@ -49,31 +49,30 @@ const orderedCandidates = (models: GatewayModel[], requested?: string) => {
   const others = models
     .filter(model => /^(alibaba|qwen|openai|groq)\//i.test(model.id) && (!model.type || model.type === 'language'))
     .map(model => model.id);
-  return [selected, ...gemini, ...others].filter((id, index, all) => available.has(id) && all.indexOf(id) === index);
+  return [selected, ...gemini, ...others].filter((id, index, all) => available.has(id) && all.indexOf(id) === index).slice(0, 8);
 };
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET' && req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
 
   try {
-    // The public model catalog lets the UI populate choices without exposing credentials.
-    const catalog = await gatewayRequest('/models');
-    const models: GatewayModel[] = Array.isArray(catalog?.data) ? catalog.data : [];
     const token = await gatewayToken();
+    if (!token) return json(res, 503, { error: 'AI Gateway credentials are unavailable for this Vercel project.' });
+    // Authenticate the catalog request. A token's mere presence does not prove access.
+    const catalog = await gatewayRequest('/models', {}, token);
+    const models: GatewayModel[] = Array.isArray(catalog?.data) ? catalog.data : [];
 
     if (req.method === 'GET') {
       const gemini = sortedGeminiModels(models).map(id => {
         const model = models.find(item => item.id === id);
         return { id, name: model?.name || id.replace('google/', '') };
       });
-      return json(res, 200, { gatewayConfigured: Boolean(token), authMode: process.env.AI_GATEWAY_API_KEY ? 'api-key' : token ? 'vercel-oidc' : 'unavailable', models: gemini });
+      return json(res, 200, { gatewayConfigured: true, authMode: process.env.AI_GATEWAY_API_KEY ? 'api-key' : 'vercel-oidc', models: gemini });
     }
 
     const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
     if (!prompt) return json(res, 400, { error: 'A prompt is required' });
     if (prompt.length > 50000) return json(res, 413, { error: 'Prompt is too large' });
-    if (!token) return json(res, 503, { error: 'Vercel AI Gateway authentication is unavailable. Enable Vercel OIDC for this project or configure AI_GATEWAY_API_KEY.' });
-
     const ordered = orderedCandidates(models, typeof req.body?.model === 'string' ? req.body.model : undefined);
     if (!ordered.length) return json(res, 503, { error: 'No supported AI Gateway models are available' });
 
@@ -90,9 +89,12 @@ export default async function handler(req: any, res: any) {
         return json(res, 200, { text, provider: model.split('/')[0], model, attempts });
       } catch (error: any) {
         attempts.push({ model, message: error?.message || 'Unavailable', status: error?.status });
+        // Authentication and billing failures apply to every model; retrying cannot help.
+        if ([401, 402, 403].includes(error?.status)) break;
       }
     }
-    return json(res, 503, { error: 'All available AI models are currently unavailable', attempts });
+    const first = attempts[0];
+    return json(res, first?.status || 503, { error: first ? `AI Gateway request failed: ${first.message}` : 'AI Gateway has no usable models', attempts });
   } catch (error: any) {
     return json(res, error?.status || 503, { error: error?.message || 'AI Gateway unavailable' });
   }
