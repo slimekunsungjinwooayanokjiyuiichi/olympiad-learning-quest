@@ -1017,6 +1017,8 @@ const Settings = () => {
   const [currentApiMode, setCurrentApiMode] = useState(getApiMode());
   const [gatewayModels, setGatewayModels] = useState<GatewayModelOption[]>(AVAILABLE_MODELS.map(model => ({ id: model.id, name: model.name })));
   const [gatewayAuth, setGatewayAuth] = useState<'checking' | 'ready' | 'missing'>('checking');
+  const [gatewayError, setGatewayError] = useState('');
+  const [showAdvancedKey, setShowAdvancedKey] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; details?: any } | null>(null);
   const [testing, setTesting] = useState(false);
 
@@ -1024,7 +1026,7 @@ const Settings = () => {
     getGatewaySetup().then(setup => {
       if (setup.models?.length) setGatewayModels(setup.models.map(model => ({ id: model.id.replace(/^google\//, ''), name: model.name })));
       setGatewayAuth(setup.gatewayConfigured ? 'ready' : 'missing');
-    }).catch(() => setGatewayAuth('missing'));
+    }).catch((error: Error) => { setGatewayAuth('missing'); setGatewayError(error.message); });
   }, []);
 
   const handleValidate = () => {
@@ -1090,24 +1092,25 @@ const Settings = () => {
 
       {/* API Key */}
       <div className="glass-card p-6">
-        <h3 className="font-bold mb-4">☁️ AI Router & Browser Fallback</h3>
+        <h3 className="font-bold mb-4">☁️ Automatic AI Router</h3>
         <p className="text-sm text-gray-400 mb-4">
-          Automatic mode uses Vercel OIDC on the server and discovers available Gateway models. It tries Gemini 3.5 Flash-Lite → Gemini 3.5 Flash → Gemini 3.6 → 3.7 → 3.8, then other available providers. A Gemini key is optional and used only as a browser fallback. Get one from{' '}
-          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">
-            Google AI Studio
-          </a>
-          {' '}— Supports both <strong className="text-purple-400">AQ</strong> (new) and <strong className="text-blue-400">AIza</strong> (legacy) formats.
+          The app discovers available models and uses the Vercel AI Gateway automatically. No personal API key is needed in normal use.
         </p>
         <div className="space-y-3">
-          <input type="password" value={apiKey} onChange={e => { setApiKey(e.target.value); setIsValid(null); setValidationMsg(''); setTestResult(null); }}
-            placeholder="Optional browser fallback: Gemini key (AQ... or AIza...)" className="w-full" />
           <div className="flex flex-wrap gap-2">
-            <button onClick={handleValidate} className="glow-btn">Validate & Save</button>
-            {apiKey && <button onClick={handleClear} className="glow-btn glow-btn-danger">Clear Key</button>}
             <button onClick={handleTestConnection} disabled={testing} className="glow-btn glow-btn-success">
               {testing ? '⏳ Testing...' : '🧪 Test Connection'}
             </button>
           </div>
+          <button onClick={() => setShowAdvancedKey(!showAdvancedKey)} className="text-sm text-gray-400 underline">
+            {showAdvancedKey ? 'Hide optional key settings' : 'Optional advanced key settings'}
+          </button>
+          {showAdvancedKey && <div className="space-y-3">
+            <input type="password" value={apiKey} onChange={e => { setApiKey(e.target.value); setIsValid(null); setValidationMsg(''); setTestResult(null); }}
+              placeholder="Optional personal Gemini fallback key" className="w-full" />
+            <button onClick={handleValidate} disabled={!apiKey.trim()} className="glow-btn">Validate & Save</button>
+            {apiKey && <button onClick={handleClear} className="glow-btn glow-btn-danger">Clear Key</button>}
+          </div>}
           {validationMsg && (
             <p className={`text-sm ${isValid ? 'text-green-400' : 'text-red-400'}`}>{validationMsg}</p>
           )}
@@ -1121,7 +1124,7 @@ const Settings = () => {
           )}
           <div className="bg-white/5 rounded-lg p-3 mt-3">
             <p className="text-xs text-gray-400">
-              <strong>Gateway setup:</strong> {gatewayAuth === 'checking' ? 'Checking…' : gatewayAuth === 'ready' ? 'Connected through Vercel OIDC or a server key' : 'No Gateway credentials detected'}.
+              <strong>Gateway setup:</strong> {gatewayAuth === 'checking' ? 'Checking…' : gatewayAuth === 'ready' ? 'Authenticated with Vercel AI Gateway' : gatewayError || 'Gateway unavailable'}.
             </p>
             <p className="text-xs text-gray-400 mt-1"><strong>Last response:</strong> {getLastProvider()}.</p>
             <p className="text-xs text-gray-400 mt-1">
