@@ -23,6 +23,22 @@ const gatewayToken = async () => {
   }
 };
 
+const googleFallback = async (prompt: string) => {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  const model = 'gemini-2.5-flash-lite';
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+    body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 2048 } }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw Object.assign(new Error(data?.error?.message || `Gemini API error ${response.status}`), { status: response.status });
+  const text = data?.candidates?.[0]?.content?.parts?.map((part: any) => part.text || '').join('') || '';
+  if (!text) throw new Error('Gemini returned no text');
+  return { text, provider: 'google-direct', model };
+};
+
 const gatewayRequest = async (path: string, init: RequestInit = {}, token?: string) => {
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json');
@@ -57,24 +73,29 @@ export default async function handler(req: any, res: any) {
 
   try {
     const token = await gatewayToken();
-    if (!token) return json(res, 503, { error: 'AI Gateway credentials are unavailable for this Vercel project.' });
-    // Authenticate the catalog request. A token's mere presence does not prove access.
-    const catalog = await gatewayRequest('/models', {}, token);
-    const models: GatewayModel[] = Array.isArray(catalog?.data) ? catalog.data : [];
+    let models: GatewayModel[] = [];
+    let catalogError: Error | null = null;
+    if (token) {
+      try {
+        const catalog = await gatewayRequest('/models', {}, token);
+        models = Array.isArray(catalog?.data) ? catalog.data : [];
+      } catch (error: any) { catalogError = error; }
+    }
 
     if (req.method === 'GET') {
       const gemini = sortedGeminiModels(models).map(id => {
         const model = models.find(item => item.id === id);
         return { id, name: model?.name || id.replace('google/', '') };
       });
-      return json(res, 200, { gatewayConfigured: true, authMode: process.env.AI_GATEWAY_API_KEY ? 'api-key' : 'vercel-oidc', models: gemini });
+      if (!models.length && !process.env.GEMINI_API_KEY) return json(res, 503, { error: catalogError?.message || 'No AI credentials are configured' });
+      return json(res, 200, { gatewayConfigured: models.length > 0 || Boolean(process.env.GEMINI_API_KEY), authMode: models.length ? (process.env.AI_GATEWAY_API_KEY ? 'api-key' : 'vercel-oidc') : 'gemini-server', models: gemini });
     }
 
     const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
     if (!prompt) return json(res, 400, { error: 'A prompt is required' });
     if (prompt.length > 50000) return json(res, 413, { error: 'Prompt is too large' });
     const ordered = orderedCandidates(models, typeof req.body?.model === 'string' ? req.body.model : undefined);
-    if (!ordered.length) return json(res, 503, { error: 'No supported AI Gateway models are available' });
+    if (!ordered.length && !process.env.GEMINI_API_KEY) return json(res, 503, { error: catalogError?.message || 'No supported AI models are available' });
 
     const attempts: Array<{ model: string; message: string; status?: number }> = [];
     for (const model of ordered) {
@@ -93,8 +114,16 @@ export default async function handler(req: any, res: any) {
         if ([401, 402, 403].includes(error?.status)) break;
       }
     }
-    const first = attempts[0];
-    return json(res, first?.status || 503, { error: first ? `AI Gateway request failed: ${first.message}` : 'AI Gateway has no usable models', attempts });
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        const direct = await googleFallback(prompt);
+        if (direct) return json(res, 200, { ...direct, attempts });
+      } catch (error: any) {
+        attempts.push({ model: 'gemini-2.5-flash-lite', message: error?.message || 'Gemini unavailable', status: error?.status });
+      }
+    }
+    const first = attempts[attempts.length - 1];
+    return json(res, first?.status || 503, { error: first ? `AI request failed: ${first.message}` : 'No AI model is available', attempts });
   } catch (error: any) {
     return json(res, error?.status || 503, { error: error?.message || 'AI Gateway unavailable' });
   }
