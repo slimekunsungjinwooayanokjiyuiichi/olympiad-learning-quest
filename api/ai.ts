@@ -103,7 +103,7 @@ export default async function handler(req: any, res: any) {
         return { id, name: model?.name || id.replace('google/', '') };
       });
       if (!models.length && !process.env.GEMINI_API_KEY) return json(res, 503, { error: catalogError?.message || 'No AI credentials are configured' });
-      return json(res, 200, { gatewayConfigured: models.length > 0 || Boolean(process.env.GEMINI_API_KEY), authMode: models.length ? (process.env.AI_GATEWAY_API_KEY ? 'api-key' : 'vercel-oidc') : 'gemini-server', models: gemini });
+      return json(res, 200, { gatewayConfigured: models.length > 0 || Boolean(process.env.GEMINI_API_KEY), serverGeminiConfigured: Boolean(process.env.GEMINI_API_KEY), authMode: models.length ? (process.env.AI_GATEWAY_API_KEY ? 'api-key' : 'vercel-oidc') : 'gemini-server', models: gemini });
     }
 
     const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
