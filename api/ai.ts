@@ -26,17 +26,26 @@ const gatewayToken = async () => {
 const googleFallback = async (prompt: string) => {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return null;
-  const model = 'gemini-2.5-flash-lite';
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-    body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 2048 } }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(data?.error?.message || `Gemini API error ${response.status}`), { status: response.status });
-  const text = data?.candidates?.[0]?.content?.parts?.map((part: any) => part.text || '').join('') || '';
-  if (!text) throw new Error('Gemini returned no text');
-  return { text, provider: 'google-direct', model };
+  let lastError: any;
+  for (const model of ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']) {
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions?api_version=v1beta', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({ model, input: prompt }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      lastError = Object.assign(new Error(data?.error?.message || `Gemini API error ${response.status}`), { status: response.status });
+      if ([401, 402, 403, 429].includes(response.status)) break;
+      continue;
+    }
+    const text = data?.steps?.filter((step: any) => step.type === 'model_output')
+      .flatMap((step: any) => step.content || []).filter((part: any) => part.type === 'text')
+      .map((part: any) => part.text || '').join('\n') || '';
+    if (text) return { text, provider: 'google-direct', model };
+    lastError = new Error('Gemini returned no text');
+  }
+  throw lastError || new Error('Gemini models unavailable');
 };
 
 const gatewayRequest = async (path: string, init: RequestInit = {}, token?: string) => {
@@ -119,7 +128,7 @@ export default async function handler(req: any, res: any) {
         const direct = await googleFallback(prompt);
         if (direct) return json(res, 200, { ...direct, attempts });
       } catch (error: any) {
-        attempts.push({ model: 'gemini-2.5-flash-lite', message: error?.message || 'Gemini unavailable', status: error?.status });
+        attempts.push({ model: 'gemini-3.5-flash-lite', message: error?.message || 'Gemini unavailable', status: error?.status });
       }
     }
     const first = attempts[attempts.length - 1];
