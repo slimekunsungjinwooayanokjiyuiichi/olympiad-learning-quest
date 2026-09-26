@@ -104,7 +104,7 @@ export const getLastProvider = (): string => localStorage.getItem('last_ai_provi
 
 export type GatewayModelOption = { id: string; name: string };
 
-export const getGatewaySetup = async (): Promise<{ gatewayConfigured: boolean; authMode: string; models: GatewayModelOption[] }> => {
+export const getGatewaySetup = async (): Promise<{ gatewayConfigured: boolean; serverGeminiConfigured: boolean; authMode: string; models: GatewayModelOption[] }> => {
   const response = await fetch('/api/ai');
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.error || `Gateway catalog error ${response.status}`);
