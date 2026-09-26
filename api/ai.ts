@@ -23,11 +23,17 @@ const gatewayToken = async () => {
   }
 };
 
-const googleFallback = async (prompt: string) => {
+const googleFallback = async (prompt: string, requested?: string) => {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return null;
+  const selected = requested?.replace(/^google\//, '');
+  const choices = [
+    ...(selected && /^gemini-[\w.-]+$/.test(selected) && !/(image|audio|tts|live)/i.test(selected) ? [selected] : []),
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+  ];
   let lastError: any;
-  for (const model of ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']) {
+  for (const model of [...new Set(choices)]) {
     const response = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions?api_version=v1beta', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
@@ -59,7 +65,7 @@ const gatewayRequest = async (path: string, init: RequestInit = {}, token?: stri
 };
 
 const sortedGeminiModels = (models: GatewayModel[]) => {
-  const eligible = models.filter(model => model.id.startsWith('google/gemini-') && (!model.type || model.type === 'language'));
+  const eligible = models.filter(model => model.id.startsWith('google/gemini-') && !/(image|audio|tts|live)/i.test(model.id) && (!model.type || model.type === 'language'));
   const ids = new Set(eligible.map(model => model.id));
   return [
     ...preferredGeminiModels.filter(id => ids.has(id)),
@@ -125,7 +131,7 @@ export default async function handler(req: any, res: any) {
     }
     if (process.env.GEMINI_API_KEY) {
       try {
-        const direct = await googleFallback(prompt);
+        const direct = await googleFallback(prompt, typeof req.body?.model === 'string' ? req.body.model : undefined);
         if (direct) return json(res, 200, { ...direct, attempts });
       } catch (error: any) {
         attempts.push({ model: 'gemini-3.5-flash-lite', message: error?.message || 'Gemini unavailable', status: error?.status });
