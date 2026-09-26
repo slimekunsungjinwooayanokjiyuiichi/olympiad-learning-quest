@@ -1017,6 +1017,7 @@ const Settings = () => {
   const [currentApiMode, setCurrentApiMode] = useState(getApiMode());
   const [gatewayModels, setGatewayModels] = useState<GatewayModelOption[]>(AVAILABLE_MODELS.map(model => ({ id: model.id, name: model.name })));
   const [gatewayAuth, setGatewayAuth] = useState<'checking' | 'ready' | 'missing'>('checking');
+  const [serverGeminiReady, setServerGeminiReady] = useState(false);
   const [gatewayError, setGatewayError] = useState('');
   const [showAdvancedKey, setShowAdvancedKey] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; details?: any } | null>(null);
@@ -1026,6 +1027,7 @@ const Settings = () => {
     getGatewaySetup().then(setup => {
       if (setup.models?.length) setGatewayModels(setup.models.map(model => ({ id: model.id.replace(/^google\//, ''), name: model.name })));
       setGatewayAuth(setup.gatewayConfigured ? 'ready' : 'missing');
+      setServerGeminiReady(Boolean(setup.serverGeminiConfigured));
     }).catch((error: Error) => { setGatewayAuth('missing'); setGatewayError(error.message); });
   }, []);
 
@@ -1106,6 +1108,7 @@ const Settings = () => {
             {showAdvancedKey ? 'Hide optional key settings' : 'Optional advanced key settings'}
           </button>
           {showAdvancedKey && <div className="space-y-3">
+            <p className="text-xs text-gray-400">The shared key is already managed on the server. Enter a personal key here only if you want to override it in this browser.</p>
             <input type="password" value={apiKey} onChange={e => { setApiKey(e.target.value); setIsValid(null); setValidationMsg(''); setTestResult(null); }}
               placeholder="Optional personal Gemini fallback key" className="w-full" />
             <button onClick={handleValidate} disabled={!apiKey.trim()} className="glow-btn">Validate & Save</button>
@@ -1124,7 +1127,7 @@ const Settings = () => {
           )}
           <div className="bg-white/5 rounded-lg p-3 mt-3">
             <p className="text-xs text-gray-400">
-              <strong>Gateway setup:</strong> {gatewayAuth === 'checking' ? 'Checking…' : gatewayAuth === 'ready' ? 'Authenticated with Vercel AI Gateway' : gatewayError || 'Gateway unavailable'}.
+              <strong>Automatic AI:</strong> {gatewayAuth === 'checking' ? 'Checking…' : serverGeminiReady ? 'Shared Gemini key is ready on the server; no setup required' : gatewayAuth === 'ready' ? 'Vercel AI Gateway is connected' : gatewayError || 'AI unavailable'}.
             </p>
             <p className="text-xs text-gray-400 mt-1"><strong>Last response:</strong> {getLastProvider()}.</p>
             <p className="text-xs text-gray-400 mt-1">
